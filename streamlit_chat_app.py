@@ -308,7 +308,7 @@ Instructions:
 3. Include relevant citations from the document like section, header, page number etc, when referencing specific sources.
 4. Be conversational and helpful while staying accurate
 5. If referring to previous parts of the conversation, make that clear
-6. Mention sources using [Source X] or (Source X) format, where X is the source number from the context.
+6. Mention sources using (Source X) format, where X is the source number from the context.
 
 Answer:"""
 
