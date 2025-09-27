@@ -214,7 +214,7 @@ class MultiDocumentRAGSystem:
         """Generate response using Gemini with retrieved context."""
         # Prepare context from search results
         context_parts = []
-        citations = []
+        self.source_metadata = []  # Store for later matching
 
         for i, result in enumerate(search_results[:15]):  # Use top 15 results
             chunk_data = result.get('chunk', result.get('metadata', {}))
@@ -253,20 +253,17 @@ class MultiDocumentRAGSystem:
             else:
                 page_info = "page unknown"
             
-            # Build citation with structured info
-            citation_parts = [f"[{i+1}]"]
-            if chapter:
-                citation_parts.append(chapter)
-            elif section:
-                citation_parts.append(section)
-            if heading and heading != chapter:
-                citation_parts.append(f"→ {heading}")
-            if sub_heading:
-                citation_parts.append(f"→ {sub_heading}")
-            citation_parts.append(page_info)
-            
-            citation = " ".join(citation_parts)
-            citations.append(citation)
+            # Store metadata for matching with citations
+            self.source_metadata.append({
+                'index': i,
+                'chapter': chapter,
+                'section': section,
+                'heading': heading,
+                'sub_heading': sub_heading,
+                'page_info': page_info,
+                'content': content,
+                'chunk_data': chunk_data
+            })
             
             # Build context with structured metadata
             context_part = f"[Source {i+1}]"
@@ -311,6 +308,7 @@ Instructions:
 3. Include relevant citations from the document like section, header, page number etc, when referencing specific sources.
 4. Be conversational and helpful while staying accurate
 5. If referring to previous parts of the conversation, make that clear
+6. Mention sources using [Source X] or (Source X) format, where X is the source number from the context.
 
 Answer:"""
 
@@ -321,19 +319,77 @@ Answer:"""
             )
             
             answer = response.text
-            
-            # Add citations at the end
-            if citations:
-                answer += "\n\n**Sources:**\n" + "\n".join(citations)
-            
             return answer
             
         except Exception as e:
             return f"Sorry, I encountered an error generating the response: {str(e)}"
+    
+    def process_answer_with_citations(self, answer: str) -> str:
+        """Process answer to convert [Source X] and (Source X) to clickable citations and remove Sources section."""
+        import re
+        
+        # Remove the entire "Sources:" section at the end
+        # Match "Sources:" or "**Sources:**" followed by everything until end of string
+        answer = re.sub(r'\n\n\*\*Sources:\*\*.*$', '', answer, flags=re.DOTALL)
+        answer = re.sub(r'\n\nSources:.*$', '', answer, flags=re.DOTALL)
+        
+        # Replace single source citations first
+        def replace_single_source(match):
+            source_num = match.group(1)
+            return f'<a href="#source-{source_num}" style="text-decoration: none; color: #1f77b4; font-weight: bold;">[{source_num}]</a>'
+        
+        # Replace grouped source citations like (Source 1, Source 8) or [Source 1, Source 8, p. 15, p. 7]
+        def replace_grouped_sources(match):
+            full_match = match.group(0)
+            # Extract all source numbers from the grouped citation (ignore page references like p. 15)
+            source_numbers = re.findall(r'Source\s+(\d+)', full_match)
+            
+            # Create clickable links for each source
+            links = []
+            for source_num in source_numbers:
+                links.append(f'<a href="#source-{source_num}" style="text-decoration: none; color: #1f77b4; font-weight: bold;">[{source_num}]</a>')
+            
+            return ' '.join(links)
+        
+        # First handle grouped sources like (Source 1, Source 8) or [Source 1, Source 8, p. 15, p. 7] or [Source 8, p. 7; Source 13, p. 2] or [Source 4, 15]
+        answer = re.sub(r'[\[\(]Source\s+\d+(?:,\s*(?:Source\s+\d+|p\.\s*\d+|\d+))*(?:;\s*Source\s+\d+(?:,\s*(?:Source\s+\d+|p\.\s*\d+|\d+))*)*[\]\)]', replace_grouped_sources, answer)
+        
+        # Then handle single sources [Source X] and (Source X)
+        answer = re.sub(r'\[Source (\d+)\]', replace_single_source, answer)
+        answer = re.sub(r'\(Source (\d+)\)', replace_single_source, answer)
+        
+        return answer
 
 def main():
     st.title("📚 Multi-Document RAG Chat")
     st.markdown("Upload multiple PDF documents and chat with them using AI!")
+    
+    # Add custom CSS for better citation styling
+    st.markdown("""
+    <style>
+    /* Citation links styling */
+    a[href^="#source-"] {
+        text-decoration: none !important;
+        color: #1f77b4 !important;
+        font-weight: bold !important;
+        background-color: #e8f4fd !important;
+        padding: 2px 6px !important;
+        border-radius: 3px !important;
+        border: 1px solid #1f77b4 !important;
+        font-size: 0.9em !important;
+    }
+    
+    a[href^="#source-"]:hover {
+        background-color: #1f77b4 !important;
+        color: white !important;
+    }
+    
+    /* Smooth scrolling for anchor links */
+    html {
+        scroll-behavior: smooth;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Check for Gemini API key
     if not os.getenv('GEMINI_API_KEY'):
@@ -444,7 +500,12 @@ def main():
     # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.write(message["content"])
+            if message["role"] == "assistant":
+                # Process assistant messages to show clickable citations
+                processed_content = st.session_state.rag_system.process_answer_with_citations(message["content"])
+                st.markdown(processed_content, unsafe_allow_html=True)
+            else:
+                st.write(message["content"])
     
     # Chat input
     if prompt := st.chat_input("Ask a question about your documents..."):
@@ -478,23 +539,92 @@ def main():
                         conversation_history=st.session_state.messages[:-1]  # Exclude current message
                     )
                     
-                    st.write(response)
+                    # Process response to add clickable citations and remove sources
+                    processed_response = st.session_state.rag_system.process_answer_with_citations(response)
                     
-                    # Add assistant response to chat history
+                    st.markdown(processed_response, unsafe_allow_html=True)
+                    
+                    # Add original response to chat history (not the processed HTML version)
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     
-                    # Show search results in expander
+                    # Show search results in expander with clean formatting
                     with st.expander("🔍 Retrieved Context", expanded=False):
-                        for i, result in enumerate(search_results[:3]):
+                        for i, result in enumerate(search_results):
                             chunk_data = result.get('chunk', result.get('metadata', {}))
-                            content = chunk_data.get('original_content', '')[:300] + "..."
+                            content = chunk_data.get('original_content', '')
                             doc_id = chunk_data.get('doc_id', 'Unknown')
-                            page_info = chunk_data.get('page_start', 'Unknown')
                             score = result.get('score', 0)
                             
-                            st.markdown(f"**Result {i+1}** (Score: {score:.3f})")
-                            st.markdown(f"*Document: {doc_id}, Page: {page_info}*")
-                            st.text(content)
+                            # Extract structured metadata from contextualized_content
+                            contextualized_content = chunk_data.get('contextualized_content', '')
+                            section = None
+                            chapter = None  
+                            heading = None
+                            sub_heading = None
+                            
+                            if contextualized_content:
+                                lines = contextualized_content.split('\n')
+                                for line in lines:
+                                    if line.startswith('Section: '):
+                                        section = line.replace('Section: ', '').strip()
+                                    elif line.startswith('Chapter: '):
+                                        chapter = line.replace('Chapter: ', '').strip()
+                                    elif line.startswith('Heading: '):
+                                        heading = line.replace('Heading: ', '').strip()
+                                    elif line.startswith('Sub-Heading: '):
+                                        sub_heading = line.replace('Sub-Heading: ', '').strip()
+                            
+                            # Format page info
+                            page_start = chunk_data.get('page_start')
+                            page_end = chunk_data.get('page_end')
+                            if page_start and page_end:
+                                if page_start == page_end:
+                                    page_info = f"Page {page_start}"
+                                else:
+                                    page_info = f"Pages {page_start}-{page_end}"
+                            else:
+                                page_info = "Page unknown"
+                            
+                            # Create anchor for clickable citations
+                            st.markdown(f'<a name="source-{i+1}"></a>', unsafe_allow_html=True)
+                            
+                            # Display source header with clean formatting
+                            st.markdown(f"**[{i+1}]** (Score: {score:.3f})")
+                            
+                            # Display structured metadata in clean format
+                            metadata_parts = []
+                            if chapter:
+                                metadata_parts.append(f"**Chapter:** {chapter}")
+                            elif section:
+                                metadata_parts.append(f"**Section:** {section}")
+                            
+                            if heading and heading != chapter:
+                                metadata_parts.append(f"**Heading:** {heading}")
+                            
+                            if sub_heading:
+                                metadata_parts.append(f"**Sub-heading:** {sub_heading}")
+                            
+                            metadata_parts.append(f"**Document:** {doc_id}")
+                            metadata_parts.append(f"**{page_info}**")
+                            
+                            # Display metadata in columns for cleaner look
+                            if len(metadata_parts) > 3:
+                                col1, col2 = st.columns(2)
+                                mid = len(metadata_parts) // 2
+                                with col1:
+                                    for part in metadata_parts[:mid]:
+                                        st.markdown(part)
+                                with col2:
+                                    for part in metadata_parts[mid:]:
+                                        st.markdown(part)
+                            else:
+                                for part in metadata_parts:
+                                    st.markdown(part)
+                            
+                            # Always show content with "Show Full Context" button
+                            with st.expander("📄 Show Full Context", expanded=False):
+                                st.text(content)
+                            
                             st.divider()
                     
                 except Exception as e:

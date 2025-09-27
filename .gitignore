@@ -1,3 +1,5 @@
 __pycache__/
 .venv/
 .env
+processed_files_metadata.json
+contextual_vector_db.pkl
