@@ -1,0 +1,9 @@
+torch --index-url https://download.pytorch.org/whl/cu129
+torchvision
+transformers
+numpy
+tqdm
+google-genai
+elasticsearch
+streamlit
+hf_xet
