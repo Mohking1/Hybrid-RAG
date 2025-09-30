@@ -216,7 +216,7 @@ class MultiDocumentRAGSystem:
         context_parts = []
         self.source_metadata = []  # Store for later matching
 
-        for i, result in enumerate(search_results[:15]):  # Use top 15 results
+        for i, result in enumerate(search_results[:25]):  # Use top 25 results
             chunk_data = result.get('chunk', result.get('metadata', {}))
             content = chunk_data.get('original_content', '')
             doc_id = chunk_data.get('doc_id', 'Unknown')
@@ -492,7 +492,7 @@ def main():
         # Search settings
         st.header("⚙️ Search Settings")
         use_reranking = st.checkbox("Use Reranking", value=True, help="Apply neural reranking for better results")
-        num_results = st.slider("Results to retrieve", min_value=3, max_value=15, value=8)
+        num_results = st.slider("Results to retrieve", min_value=3, max_value=25, value=8)
     
     # Main chat interface
     st.header("💬 Chat Interface")
