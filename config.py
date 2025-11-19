@@ -1,11 +1,13 @@
+import os
+
 # Configuration file for RAG Pipeline
 
 # Elasticsearch Configuration
 ELASTICSEARCH_CONFIG = {
-    "hosts": ["http://localhost:9200"],
-    "api_key": "NmhYamhKa0J0bEZlSDRwQzBmM1g6LXlTeXFZSzUzWkp1MnVSTDdRRFI0UQ==",
-    "username": "elastic",
-    "password": "tZFZBiqb",
+    "hosts": [os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")],
+    "api_key": os.getenv("ES_LOCAL_API_KEY"),
+    "username": os.getenv("ELASTICSEARCH_USERNAME", "elastic"),
+    "password": os.getenv("ES_LOCAL_PASSWORD", "changeme"),
     "timeout": 30,
     "max_retries": 3,
     "retry_on_timeout": True,
