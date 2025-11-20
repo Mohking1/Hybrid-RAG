@@ -15,7 +15,7 @@ import os
 import pickle
 import json
 import numpy as np
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Callable
 from tqdm import tqdm
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -46,7 +46,7 @@ except ImportError:
     }
     GEMINI_CONFIG = {
         "embedding_model": "gemini-embedding-001",
-        "chat_model": "gemini-2.0-flash-exp",
+        "chat_model": "gemini-2.5-flash",
         "document_understanding_model": "gemini-2.5-flash-lite"
     }
     RAG_CONFIG = {
@@ -167,10 +167,6 @@ import pathlib
 
 # --- Pydantic Model for Structured Metadata ---
 class ChunkMetadata(BaseModel):
-    section: Optional[str] = Field(None, description="Section name if it exists in the document structure")
-    chapter: Optional[str] = Field(None, description="Chapter name if it exists (e.g., 'Chapter 1: Introduction')")
-    heading: Optional[str] = Field(None, description="Main heading for this chunk")
-    sub_heading: Optional[str] = Field(None, description="Sub-heading if it exists")
     content_summary: str = Field(description="Brief 1-2 sentence summary of the chunk content")
     page_info: str = Field(description="Page number(s) for this chunk (e.g., 'Page: 5' or 'Pages: 5-6')")
 
@@ -220,10 +216,6 @@ class ContextualVectorDB:
         {page_info}
 
         Instructions:
-        - Identify the exact section, chapter, heading, and sub-heading names as they appear in the document.
-        - Use proper capitalization and formatting as shown in the document.
-        - For chapter, use format like "Chapter 1: Title" or just the chapter name if no number exists.
-        - Only include fields that actually exist - leave as null if not present.
         - Provide a concise summary focusing on the main topic/concept.
         """
         
@@ -247,14 +239,6 @@ class ContextualVectorDB:
         
         # Convert to formatted string for embedding
         formatted_metadata = []
-        if metadata.section:
-            formatted_metadata.append(f"Section: {metadata.section}")
-        if metadata.chapter:
-            formatted_metadata.append(f"Chapter: {metadata.chapter}")
-        if metadata.heading:
-            formatted_metadata.append(f"Heading: {metadata.heading}")
-        if metadata.sub_heading:
-            formatted_metadata.append(f"Sub-Heading: {metadata.sub_heading}")
         formatted_metadata.append(f"Content Summary: {metadata.content_summary}")
         formatted_metadata.append(f"Page(s): {metadata.page_info}")
         
