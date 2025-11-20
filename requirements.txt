@@ -7,3 +7,6 @@ google-genai
 elasticsearch
 streamlit
 hf_xet
+pydantic
+PyMuPDF
+python-dotenv

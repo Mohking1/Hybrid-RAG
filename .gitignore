@@ -3,3 +3,4 @@ __pycache__/
 .env
 processed_files_metadata.json
 contextual_vector_db.pkl
+elastic-start-local/

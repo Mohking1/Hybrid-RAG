@@ -38,7 +38,7 @@ except ImportError:
     # Default configurations if config.py doesn't exist
     ELASTICSEARCH_CONFIG = {
         "hosts": ["http://localhost:9200"],
-        "api_key": "NmhYamhKa0J0bEZlSDRwQzBmM1g6LXlTeXFZSzUzWkp1MnVSTDdRRFI0UQ==",
+        "api_key": "dmxYTm9Kb0JnN1ZwR0p5ZnlIZzA6X2xmaldRbFJpTmE3ai1GTHVlNHVLQQ==",
         "timeout": 30,
         "max_retries": 3,
         "retry_on_timeout": True,

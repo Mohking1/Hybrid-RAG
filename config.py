@@ -7,7 +7,7 @@ ELASTICSEARCH_CONFIG = {
     "hosts": [os.getenv("ELASTICSEARCH_HOST", "http://localhost:9200")],
     "api_key": os.getenv("ES_LOCAL_API_KEY"),
     "username": os.getenv("ELASTICSEARCH_USERNAME", "elastic"),
-    "password": os.getenv("ES_LOCAL_PASSWORD", "changeme"),
+    "password": os.getenv("ES_LOCAL_PASSWORD", "YKMe3Sae"),
     "timeout": 30,
     "max_retries": 3,
     "retry_on_timeout": True,
