@@ -32,8 +32,8 @@ CHUNKING_CONFIG = {
 
 # RAG Pipeline Configuration
 RAG_CONFIG = {
-    "semantic_weight": 0.8,
-    "bm25_weight": 0.2,
+    "semantic_weight": 0.7,
+    "bm25_weight": 0.3,
     "num_chunks_to_recall": 150,
     "final_k": 20,
     "reranking_enabled": True,
