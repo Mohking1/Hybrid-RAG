@@ -10,3 +10,4 @@ hf_xet
 pydantic
 PyMuPDF
 python-dotenv
+accelerate

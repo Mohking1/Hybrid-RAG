@@ -31,36 +31,18 @@ import time
 from google import genai
 from google.genai import types
 
-# Try to import configuration
-try:
-    from config import ELASTICSEARCH_CONFIG, GEMINI_CONFIG, RAG_CONFIG
-except ImportError:
-    # Default configurations if config.py doesn't exist
-    ELASTICSEARCH_CONFIG = {
-        "hosts": ["http://localhost:9200"],
-        "api_key": "dmxYTm9Kb0JnN1ZwR0p5ZnlIZzA6X2xmaldRbFJpTmE3ai1GTHVlNHVLQQ==",
-        "timeout": 30,
-        "max_retries": 3,
-        "retry_on_timeout": True,
-        "verify_certs": False
-    }
-    GEMINI_CONFIG = {
-        "embedding_model": "gemini-embedding-001",
-        "chat_model": "gemini-2.5-flash",
-        "document_understanding_model": "gemini-2.5-flash-lite"
-    }
-    RAG_CONFIG = {
-        "semantic_weight": 0.8,
-        "bm25_weight": 0.2
-    }
+# Import configuration - config.py handles all environment variables and defaults
+from config import ELASTICSEARCH_CONFIG, GEMINI_CONFIG, RAG_CONFIG
 
 
 # --- VectorDB Class ---
 class VectorDB:
-    def __init__(self, name: str, gemini_model="gemini-embedding-001"):
+    def __init__(self, name: str, gemini_model=None):
+        if gemini_model is None:
+            gemini_model = GEMINI_CONFIG["embedding_model"]
         self.client = genai.Client()
         self.model = gemini_model
-        self.output_dim = 768
+        self.output_dim = GEMINI_CONFIG["embedding_dimension"]
         self.name = name
         self.embeddings = []
         self.metadata = []
@@ -95,7 +77,7 @@ class VectorDB:
         print(f"Vector database loaded and saved. Total chunks processed: {len(texts_to_embed)}")
 
     def _embed_and_store(self, texts: List[str], data: List[Dict[str, Any]]):
-        batch_size = 100  # Gemini API allows max 100 requests per batch
+        batch_size = RAG_CONFIG["batch_size"]  # Use configurable batch size
         embeddings = []
         with tqdm(total=len(texts), desc="Embedding chunks (Gemini)") as pbar:
             for i in range(0, len(texts), batch_size):
@@ -104,8 +86,8 @@ class VectorDB:
                     model=self.model,
                     contents=batch,
                     config=types.EmbedContentConfig(
-                        output_dimensionality=768,
-                        task_type="QUESTION_ANSWERING"
+                        output_dimensionality=GEMINI_CONFIG["embedding_dimension"],
+                        task_type=GEMINI_CONFIG["embedding_task_type"]
                     )
                 )
                 for embedding_obj in result.embeddings:
@@ -124,8 +106,8 @@ class VectorDB:
                 model=self.model,
                 contents=[query],
                 config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="QUESTION_ANSWERING"
+                    output_dimensionality=GEMINI_CONFIG["embedding_dimension"],
+                    task_type=GEMINI_CONFIG["embedding_task_type"]
                 )
             )
             values = np.array(result.embeddings[0].values)
@@ -172,10 +154,12 @@ class ChunkMetadata(BaseModel):
 
 # --- ContextualVectorDB Class ---
 class ContextualVectorDB:
-    def __init__(self, name: str, gemini_model="gemini-embedding-001"):
+    def __init__(self, name: str, gemini_model=None):
+        if gemini_model is None:
+            gemini_model = GEMINI_CONFIG["embedding_model"]
         self.client = genai.Client()
         self.model = gemini_model
-        self.output_dim = 768
+        self.output_dim = GEMINI_CONFIG["embedding_dimension"]
         self.name = name
         self.embeddings = []
         self.metadata = []
@@ -304,7 +288,7 @@ class ContextualVectorDB:
         print(f"Contextual Vector database loaded and saved. Total chunks processed: {len(texts_to_embed)}")
 
     def _embed_and_store(self, texts: List[str], data: List[Dict[str, Any]]):
-        batch_size = 100  # Gemini API allows max 100 requests per batch
+        batch_size = RAG_CONFIG["batch_size"]  # Use configurable batch size
         embeddings = []
         with tqdm(total=len(texts), desc="Embedding contextual chunks (Gemini)") as pbar:
             for i in range(0, len(texts), batch_size):
@@ -313,8 +297,8 @@ class ContextualVectorDB:
                     model=self.model,
                     contents=batch,
                     config=types.EmbedContentConfig(
-                        output_dimensionality=768,
-                        task_type="QUESTION_ANSWERING"
+                        output_dimensionality=GEMINI_CONFIG["embedding_dimension"],
+                        task_type=GEMINI_CONFIG["embedding_task_type"]
                     )
                 )
                 for embedding_obj in result.embeddings:
@@ -333,8 +317,8 @@ class ContextualVectorDB:
                 model=self.model,
                 contents=[query],
                 config=types.EmbedContentConfig(
-                    output_dimensionality=768,
-                    task_type="QUESTION_ANSWERING"
+                    output_dimensionality=GEMINI_CONFIG["embedding_dimension"],
+                    task_type=GEMINI_CONFIG["embedding_task_type"]
                 )
             )
             values = np.array(result.embeddings[0].values)
@@ -391,9 +375,11 @@ class ElasticsearchBM25:
             # Add authentication
             if "api_key" in es_config and es_config["api_key"]:
                 es_params["api_key"] = es_config["api_key"]
+            elif "username" in es_config and "password" in es_config and es_config["password"]:
+                # Use basic auth with credentials from config
+                es_params["basic_auth"] = (es_config["username"], es_config["password"])
             else:
-                # Use basic auth with provided credentials
-                es_params["basic_auth"] = ("elastic", "tZFZBiqb")
+                raise ValueError("Elasticsearch authentication not configured. Set ES_LOCAL_API_KEY or ES_LOCAL_PASSWORD in environment.")
             
             self.es_client = Elasticsearch(**es_params)
             
@@ -527,13 +513,23 @@ def evaluate_db(db, original_jsonl_path: str, k):
     return results
 
 # --- Contextual BM25 Hybrid Search ---
-def create_elasticsearch_bm25_index(db: ContextualVectorDB):
-    es_bm25 = ElasticsearchBM25()
+def create_elasticsearch_bm25_index(db: ContextualVectorDB, index_name: str = None, es_config: Dict[str, Any] = None):
+    if index_name is None:
+        index_name = "contextual_bm25_index"
+    if es_config is None:
+        es_config = ELASTICSEARCH_CONFIG
+    es_bm25 = ElasticsearchBM25(index_name, es_config)
     es_bm25.index_documents(db.metadata)
     return es_bm25
 
-def retrieve_advanced(query: str, db: ContextualVectorDB, es_bm25: ElasticsearchBM25, k: int, semantic_weight: float = 0.8, bm25_weight: float = 0.2):
-    num_chunks_to_recall = 150
+def retrieve_advanced(query: str, db: ContextualVectorDB, es_bm25: ElasticsearchBM25, k: int, semantic_weight: float = None, bm25_weight: float = None):
+    # Use config defaults if not provided
+    if semantic_weight is None:
+        semantic_weight = RAG_CONFIG["semantic_weight"]
+    if bm25_weight is None:
+        bm25_weight = RAG_CONFIG["bm25_weight"]
+    
+    num_chunks_to_recall = RAG_CONFIG["num_chunks_to_recall"]
     semantic_results = db.search(query, k=num_chunks_to_recall)
     ranked_chunk_ids = [(result['metadata']['doc_id'], result['metadata']['original_index']) for result in semantic_results]
     bm25_results = es_bm25.search(query, k=num_chunks_to_recall)
@@ -574,11 +570,13 @@ def retrieve_advanced(query: str, db: ContextualVectorDB, es_bm25: Elasticsearch
             bm25_count += 0.5
     return final_results, semantic_count, bm25_count
 
-def evaluate_db_advanced(db: ContextualVectorDB, original_jsonl_path: str, k: int):
+def evaluate_db_advanced(db: ContextualVectorDB, original_jsonl_path: str, k: int, es_config: Dict[str, Any] = None):
     original_data = load_jsonl(original_jsonl_path)
-    es_bm25 = create_elasticsearch_bm25_index(db)
+    if es_config is None:
+        es_config = ELASTICSEARCH_CONFIG
+    es_bm25 = create_elasticsearch_bm25_index(db, es_config=es_config)
     try:
-        warm_up_queries = original_data[:10]
+        warm_up_queries = original_data[:RAG_CONFIG["warmup_queries_count"]]
         for query_item in warm_up_queries:
             _ = retrieve_advanced(query_item['query'], db, es_bm25, k)
         total_score = 0
@@ -637,12 +635,12 @@ def chunk_to_content(chunk: Dict[str, Any]) -> str:
     contextualized_content = chunk['metadata']['contextualized_content']
     return f"{original_content}\n\nContext: {contextualized_content}"
 
-# Efficient reranker using BAAI/bge-reranker-v2-m3
+# Efficient reranker using configurable model
 def rerank_with_m3(query: str, candidate_chunks: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
     pairs = [(query, chunk_to_content(chunk)) for chunk in candidate_chunks]
-    tokenizer = AutoTokenizer.from_pretrained('BAAI/bge-reranker-v2-m3')
+    tokenizer = AutoTokenizer.from_pretrained(RAG_CONFIG["reranker_model"])
     device_map = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = AutoModelForSequenceClassification.from_pretrained('BAAI/bge-reranker-v2-m3', device_map=device_map)
+    model = AutoModelForSequenceClassification.from_pretrained(RAG_CONFIG["reranker_model"], device_map=device_map)
     model.eval()
     with torch.no_grad():
         inputs = tokenizer(pairs, padding=True, truncation=True, return_tensors='pt', max_length=512)
@@ -658,7 +656,7 @@ def rerank_with_m3(query: str, candidate_chunks: List[Dict[str, Any]], k: int) -
 
 def retrieve_rerank(query: str, db, k: int) -> List[Dict[str, Any]]:
     # Retrieve more results than needed, then rerank
-    candidate_results = db.search(query, k=k*10)
+    candidate_results = db.search(query, k=k*RAG_CONFIG["rerank_multiplier"])
     return rerank_with_m3(query, candidate_results, k)
 
 def evaluate_retrieval_rerank(queries: List[Dict[str, Any]], retrieval_function: Callable, db, k: int = 20) -> Dict[str, float]:
@@ -722,14 +720,16 @@ def create_multi_document_dataset(pdf_paths: List[str], chunker=None) -> List[Di
     
     return dataset
 
-def create_rag_system(dataset: List[Dict[str, Any]], db_name: str = "multi_doc_rag") -> tuple:
+def create_rag_system(dataset: List[Dict[str, Any]], db_name: str = "multi_doc_rag", es_config: Dict[str, Any] = None) -> tuple:
     """Create a complete RAG system with vector DB and BM25."""
     # Create contextual vector database
     contextual_db = ContextualVectorDB(db_name)
     contextual_db.load_data(dataset, parallel_threads=8)
     
     # Create BM25 index
-    es_bm25 = ElasticsearchBM25(f"{db_name}_bm25")
+    if es_config is None:
+        es_config = ELASTICSEARCH_CONFIG
+    es_bm25 = ElasticsearchBM25(f"{db_name}_bm25", es_config)
     es_bm25.index_documents(contextual_db.metadata)
     
     return contextual_db, es_bm25
