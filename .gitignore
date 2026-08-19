@@ -1,6 +1,10 @@
 __pycache__/
 .venv/
 .env
+.vscode/
+.pytest_cache/
+*.pkl
+data/
 processed_files_metadata.json
 contextual_vector_db.pkl
 elastic-start-local/

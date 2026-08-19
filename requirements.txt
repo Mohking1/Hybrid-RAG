@@ -8,6 +8,8 @@ elasticsearch
 streamlit
 hf_xet
 pydantic
+pypdf
 PyMuPDF
 python-dotenv
 accelerate
+mcp

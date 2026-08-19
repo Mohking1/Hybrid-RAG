@@ -1,19 +1,43 @@
 services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    container_name: rag-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   rag-app:
     image: python:3.12-slim
     container_name: rag-app
     working_dir: /app
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - .:/app
       - pip_cache:/root/.cache/pip
     command: >
       sh -c "
         apt-get update && apt-get install -y curl git libgl1 libglib2.0-0 &&
-        curl -fsSL https://elastic.co/start-local | sh &&
         pip install -r requirements.txt &&
         streamlit run streamlit_chat_app.py --server.port=8501 --server.address=0.0.0.0
       "
     ports:
       - "8501:8501"
+
 volumes:
+  esdata:
   pip_cache:
