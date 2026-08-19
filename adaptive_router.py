@@ -126,7 +126,7 @@ class AdaptiveQueryRouter:
             f"Question: {query}"
         )
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash", contents=prompt
+            model="gemini-3.7-flash", contents=prompt
         )
         lines = [line.strip() for line in response.text.split("\n") if line.strip()]
         cleaned = [re.sub(r"^\d+[\.\)]\s*", "", line) for line in lines]
@@ -138,7 +138,7 @@ class AdaptiveQueryRouter:
             f"Focus purely on factual content that would likely appear in an authoritative document."
         )
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash", contents=prompt
+            model="gemini-3.7-flash", contents=prompt
         )
         return response.text.strip()
 

@@ -185,13 +185,13 @@ class ContextualVectorDB:
         }
         self.token_lock = threading.Lock()
 
-    # Gemini-2.5-flash-lite PDF document understanding
-    def summarize_pdf(
+    # Gemini-3.7-flash PDF document understanding
+    def generate_document_summary(
         self, pdf_path: str, prompt: str = "Summarize this document"
     ) -> str:
         file_path = pathlib.Path(pdf_path)
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-3.7-flash",
             contents=[
                 types.Part.from_bytes(
                     data=file_path.read_bytes(),
@@ -220,7 +220,7 @@ class ContextualVectorDB:
         """
 
         response = self.client.models.generate_content(
-            model="gemini-2.5-flash-lite",
+            model="gemini-3.7-flash",
             contents=[
                 types.Part.from_bytes(
                     data=file_path.read_bytes(),
@@ -963,7 +963,7 @@ Answer:"""
 
     try:
         response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash-exp", contents=[prompt]
+            model="gemini-3.7-flash", contents=[prompt]
         )
 
         answer = response.text

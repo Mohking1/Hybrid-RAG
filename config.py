@@ -35,9 +35,10 @@ ELASTICSEARCH_CONFIG = {
 
 # Gemini Configuration
 GEMINI_CONFIG = {
-    "embedding_model": "gemini-embedding-001",
-    "chat_model": "gemini-2.5-flash",
-    "document_understanding_model": "gemini-2.5-flash-lite",
+    "embedding_model": "text-embedding-004",
+    "chat_model": "gemini-3.7-flash",
+    "generation_model": "gemini-3.7-flash",
+    "document_understanding_model": "gemini-3.7-flash",
     "embedding_dimension": 768,
     "embedding_task_type": "QUESTION_ANSWERING",
 }

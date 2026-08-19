@@ -34,7 +34,7 @@ class RAGEngine:
         self.reranker_model_name = reranker_model or RAG_CONFIG.get(
             "reranker_model", "BAAI/bge-reranker-large"
         )
-        self.llm_model = GEMINI_CONFIG.get("generation_model", "gemini-2.5-flash")
+        self.llm_model = GEMINI_CONFIG.get("generation_model", "gemini-3.7-flash")
 
         self.chunker = ParentChildChunker(
             parent_chunk_size=RAG_CONFIG.get("parent_chunk_size", 1000),
