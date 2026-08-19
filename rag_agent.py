@@ -5,24 +5,23 @@ This module provides a clean, function-callable interface to the RAG system,
 allowing agentic AI systems to easily insert PDFs and search for answers.
 """
 
-import os
-import tempfile
-import shutil
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
 import json
-from datetime import datetime
+import os
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 # Import our RAG components
 from pdf_chunker import PDFClusterSemanticChunker
+from rag_engine import RAGEngine
 from rag_pipeline import (
     ContextualVectorDB,
     ElasticsearchBM25,
-    retrieve_advanced,
+    answer_question,
     rerank_with_m3,
-    answer_question
+    retrieve_advanced,
 )
-from config import ELASTICSEARCH_CONFIG, GEMINI_CONFIG, RAG_CONFIG
 
 
 class RAGAgent:
@@ -35,7 +34,9 @@ class RAGAgent:
     - Manage multiple document collections
     """
 
-    def __init__(self, collection_name: str = "default", config: Dict[str, Any] = None):
+    def __init__(
+        self, collection_name: str = "default", config: dict[str, Any] | None = None
+    ):
         """
         Initialize the RAG Agent.
 
@@ -48,8 +49,12 @@ class RAGAgent:
 
         # Initialize components
         self.chunker = PDFClusterSemanticChunker(
-            max_chunk_size=self.config.get('max_chunk_size', 400),
-            min_chunk_size=self.config.get('min_chunk_size', 50)
+            max_chunk_size=self.config.get("max_chunk_size", 400),
+            min_chunk_size=self.config.get("min_chunk_size", 50),
+        )
+
+        self.engine = RAGEngine(
+            collection_name=self.collection_name, es_config=self.config.get("es_config")
         )
 
         self.vector_db = None
@@ -72,30 +77,38 @@ class RAGAgent:
             if os.path.exists(vector_db_path):
                 self.vector_db = ContextualVectorDB(self.collection_name)
                 self.vector_db.load_db()
-                print(f"✅ Loaded existing vector database for collection '{self.collection_name}'")
+                print(
+                    f"✅ Loaded existing vector database for collection '{self.collection_name}'"
+                )
 
             # Load Elasticsearch index
             self.es_bm25 = ElasticsearchBM25(f"{self.collection_name}_bm25")
             if self.es_bm25.available:
-                print(f"✅ Loaded existing Elasticsearch index for collection '{self.collection_name}'")
+                print(
+                    f"✅ Loaded existing Elasticsearch index for collection '{self.collection_name}'"
+                )
 
             # Load document metadata
             if os.path.exists(self.metadata_file):
-                with open(self.metadata_file, 'r') as f:
+                with open(self.metadata_file, "r") as f:
                     self.document_metadata = json.load(f)
                 print(f"✅ Loaded metadata for {len(self.document_metadata)} documents")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"⚠️  Error loading existing data: {e}")
 
     def _save_metadata(self):
         """Save document metadata to disk."""
         os.makedirs(self.data_dir, exist_ok=True)
-        with open(self.metadata_file, 'w') as f:
+        with open(self.metadata_file, "w") as f:
             json.dump(self.document_metadata, f, indent=2, default=str)
 
-    def insert_pdf(self, pdf_path: Union[str, Path], doc_id: Optional[str] = None,
-                   metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+    def insert_pdf(
+        self,
+        pdf_path: str | Path,
+        doc_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Insert a PDF document into the RAG system.
 
@@ -118,21 +131,22 @@ class RAGAgent:
 
         try:
             # Process the PDF
-            dataset_entry = self.chunker.create_dataset_from_pdf(str(pdf_path), doc_id=doc_id)
+            dataset_entry = self.chunker.create_dataset_from_pdf(
+                str(pdf_path), doc_id=doc_id
+            )
 
             # Add metadata
-            dataset_entry['filename'] = pdf_path.name
-            dataset_entry['pdf_path'] = str(pdf_path)
-            dataset_entry['inserted_at'] = datetime.now().isoformat()
-            dataset_entry['custom_metadata'] = metadata or {}
+            dataset_entry["filename"] = pdf_path.name
+            dataset_entry["pdf_path"] = str(pdf_path)
+            dataset_entry["inserted_at"] = datetime.now(timezone.utc).isoformat()
+            dataset_entry["custom_metadata"] = metadata or {}
 
             # Check if document already exists
             if doc_id in self.document_metadata:
                 print(f"⚠️  Document '{doc_id}' already exists. Updating...")
                 # Remove old document from processed_documents
                 self.processed_documents = [
-                    doc for doc in self.processed_documents
-                    if doc['doc_id'] != doc_id
+                    doc for doc in self.processed_documents if doc["doc_id"] != doc_id
                 ]
 
             # Add to processed documents
@@ -140,11 +154,11 @@ class RAGAgent:
 
             # Update metadata
             self.document_metadata[doc_id] = {
-                'filename': pdf_path.name,
-                'pdf_path': str(pdf_path),
-                'chunks': len(dataset_entry['chunks']),
-                'inserted_at': dataset_entry['inserted_at'],
-                'custom_metadata': metadata or {}
+                "filename": pdf_path.name,
+                "pdf_path": str(pdf_path),
+                "chunks": len(dataset_entry["chunks"]),
+                "inserted_at": dataset_entry["inserted_at"],
+                "custom_metadata": metadata or {},
             }
 
             # Rebuild vector database and search index
@@ -154,26 +168,27 @@ class RAGAgent:
             self._save_metadata()
 
             result = {
-                'status': 'success',
-                'doc_id': doc_id,
-                'chunks_processed': len(dataset_entry['chunks']),
-                'total_documents': len(self.processed_documents)
+                "status": "success",
+                "doc_id": doc_id,
+                "chunks_processed": len(dataset_entry["chunks"]),
+                "total_documents": len(self.processed_documents),
             }
 
-            print(f"✅ Successfully inserted '{doc_id}' with {len(dataset_entry['chunks'])} chunks")
+            print(
+                f"✅ Successfully inserted '{doc_id}' with {len(dataset_entry['chunks'])} chunks"
+            )
             return result
 
-        except Exception as e:
-            error_result = {
-                'status': 'error',
-                'doc_id': doc_id,
-                'error': str(e)
-            }
+        except Exception as e:  # noqa: BLE001
+            error_result = {"status": "error", "doc_id": doc_id, "error": str(e)}
             print(f"❌ Error processing '{doc_id}': {e}")
             return error_result
 
-    def insert_pdfs(self, pdf_paths: List[Union[str, Path]],
-                    metadata_list: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    def insert_pdfs(
+        self,
+        pdf_paths: list[str | Path],
+        metadata_list: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Insert multiple PDF documents into the RAG system.
 
@@ -212,8 +227,13 @@ class RAGAgent:
 
         print("✅ Indexes rebuilt successfully")
 
-    def search(self, query: str, k: int = 5, use_reranking: bool = True,
-               include_context: bool = True) -> Dict[str, Any]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        use_reranking: bool = True,
+        include_context: bool = True,
+    ) -> dict[str, Any]:
         """
         Search for answers in the processed documents.
 
@@ -227,17 +247,21 @@ class RAGAgent:
             Dictionary with search results and answer
         """
         if not self.vector_db or not self.es_bm25:
-            raise ValueError("No documents have been inserted yet. Use insert_pdf() first.")
+            raise ValueError(
+                "No documents have been inserted yet. Use insert_pdf() first."
+            )
 
         try:
             # Get search results
             if use_reranking:
                 # Get more results for reranking
-                candidate_results = self.vector_db.search(query, k=k*3)
+                candidate_results = self.vector_db.search(query, k=k * 3)
                 search_results = rerank_with_m3(query, candidate_results, k)
             else:
                 # Use hybrid search
-                results, _, _ = retrieve_advanced(query, self.vector_db, self.es_bm25, k)
+                results, _, _ = retrieve_advanced(
+                    query, self.vector_db, self.es_bm25, k
+                )
                 search_results = results
 
             # Generate answer
@@ -246,39 +270,63 @@ class RAGAgent:
                 contextual_db=self.vector_db,
                 es_bm25=self.es_bm25,
                 k=k,
-                use_reranking=use_reranking
+                use_reranking=use_reranking,
             )
 
             # Format results
             formatted_results = []
             for i, result in enumerate(search_results):
-                chunk_data = result.get('chunk', result.get('metadata', {}))
+                chunk_data = result.get("chunk", result.get("metadata", {}))
                 formatted_result = {
-                    'rank': i + 1,
-                    'doc_id': chunk_data.get('doc_id', 'Unknown'),
-                    'score': result.get('score', 0),
-                    'page_start': chunk_data.get('page_start'),
-                    'page_end': chunk_data.get('page_end'),
-                    'content': chunk_data.get('original_content', '') if include_context else None
+                    "rank": i + 1,
+                    "doc_id": chunk_data.get("doc_id", "Unknown"),
+                    "score": result.get("score", 0),
+                    "page_start": chunk_data.get("page_start"),
+                    "page_end": chunk_data.get("page_end"),
+                    "content": chunk_data.get("original_content", "")
+                    if include_context
+                    else None,
                 }
                 formatted_results.append(formatted_result)
 
             return {
-                'status': 'success',
-                'query': query,
-                'answer': answer,
-                'results': formatted_results,
-                'total_results': len(formatted_results)
+                "status": "success",
+                "query": query,
+                "answer": answer,
+                "results": formatted_results,
+                "total_results": len(formatted_results),
             }
 
-        except Exception as e:
-            return {
-                'status': 'error',
-                'query': query,
-                'error': str(e)
-            }
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "query": query, "error": str(e)}
 
-    def get_document_info(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
+    def ingest_hierarchical_pdf(
+        self, pdf_path: str | Path, doc_id: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Insert a PDF using the hierarchical parent-child pipeline.
+        """
+        return self.engine.ingest_pdf(str(pdf_path), doc_id=doc_id)
+
+    def search_hierarchical(
+        self, query: str, k: int = 5, use_reranking: bool = True
+    ) -> dict[str, Any]:
+        """
+        Search using Adaptive Router, RRF Hybrid search, and Parent Resolution.
+        """
+        return self.engine.search(query=query, top_k=k, use_reranking=use_reranking)
+
+    def answer_hierarchical(
+        self, query: str, k: int = 5, use_reranking: bool = True
+    ) -> dict[str, Any]:
+        """
+        Answer using citation-grounded generation.
+        """
+        return self.engine.answer_question(
+            query=query, top_k=k, use_reranking=use_reranking
+        )
+
+    def get_document_info(self, doc_id: str | None = None) -> dict[str, Any]:
         """
         Get information about processed documents.
 
@@ -290,23 +338,17 @@ class RAGAgent:
         """
         if doc_id:
             if doc_id in self.document_metadata:
-                return {
-                    'status': 'success',
-                    'document': self.document_metadata[doc_id]
-                }
+                return {"status": "success", "document": self.document_metadata[doc_id]}
             else:
-                return {
-                    'status': 'error',
-                    'error': f"Document '{doc_id}' not found"
-                }
+                return {"status": "error", "error": f"Document '{doc_id}' not found"}
         else:
             return {
-                'status': 'success',
-                'total_documents': len(self.document_metadata),
-                'documents': self.document_metadata
+                "status": "success",
+                "total_documents": len(self.document_metadata),
+                "documents": self.document_metadata,
             }
 
-    def delete_document(self, doc_id: str) -> Dict[str, Any]:
+    def delete_document(self, doc_id: str) -> dict[str, Any]:
         """
         Delete a document from the RAG system.
 
@@ -317,16 +359,12 @@ class RAGAgent:
             Dictionary with deletion result
         """
         if doc_id not in self.document_metadata:
-            return {
-                'status': 'error',
-                'error': f"Document '{doc_id}' not found"
-            }
+            return {"status": "error", "error": f"Document '{doc_id}' not found"}
 
         try:
             # Remove from processed documents
             self.processed_documents = [
-                doc for doc in self.processed_documents
-                if doc['doc_id'] != doc_id
+                doc for doc in self.processed_documents if doc["doc_id"] != doc_id
             ]
 
             # Remove from metadata
@@ -344,19 +382,15 @@ class RAGAgent:
             self._save_metadata()
 
             return {
-                'status': 'success',
-                'doc_id': doc_id,
-                'message': f"Document '{doc_id}' deleted successfully"
+                "status": "success",
+                "doc_id": doc_id,
+                "message": f"Document '{doc_id}' deleted successfully",
             }
 
-        except Exception as e:
-            return {
-                'status': 'error',
-                'doc_id': doc_id,
-                'error': str(e)
-            }
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "doc_id": doc_id, "error": str(e)}
 
-    def clear_collection(self) -> Dict[str, Any]:
+    def clear_collection(self) -> dict[str, Any]:
         """
         Clear all documents from the collection.
 
@@ -375,18 +409,16 @@ class RAGAgent:
             self.document_metadata = {}
 
             return {
-                'status': 'success',
-                'message': f"Collection '{self.collection_name}' cleared successfully"
+                "status": "success",
+                "message": f"Collection '{self.collection_name}' cleared successfully",
             }
 
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
+        except Exception as e:  # noqa: BLE001
+            return {"status": "error", "error": str(e)}
 
 
 # Convenience functions for easy agentic AI usage
+
 
 def create_rag_agent(collection_name: str = "default") -> RAGAgent:
     """
@@ -401,8 +433,12 @@ def create_rag_agent(collection_name: str = "default") -> RAGAgent:
     return RAGAgent(collection_name)
 
 
-def insert_document(agent: RAGAgent, pdf_path: str, doc_id: Optional[str] = None,
-                   metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+def insert_document(
+    agent: RAGAgent,
+    pdf_path: str,
+    doc_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Insert a PDF document into the RAG system.
 
@@ -418,8 +454,9 @@ def insert_document(agent: RAGAgent, pdf_path: str, doc_id: Optional[str] = None
     return agent.insert_pdf(pdf_path, doc_id, metadata)
 
 
-def search_documents(agent: RAGAgent, query: str, k: int = 5,
-                    use_reranking: bool = True) -> Dict[str, Any]:
+def search_documents(
+    agent: RAGAgent, query: str, k: int = 5, use_reranking: bool = True
+) -> dict[str, Any]:
     """
     Search for answers in the processed documents.
 
@@ -435,7 +472,7 @@ def search_documents(agent: RAGAgent, query: str, k: int = 5,
     return agent.search(query, k, use_reranking)
 
 
-def get_document_list(agent: RAGAgent) -> Dict[str, Any]:
+def get_document_list(agent: RAGAgent) -> dict[str, Any]:
     """
     Get list of all documents in the collection.
 
@@ -459,7 +496,7 @@ if __name__ == "__main__":
 
     # Search for answers
     search_result = search_documents(agent, "What are the main topics discussed?")
-    print("Answer:", search_result['answer'])
+    print("Answer:", search_result["answer"])
 
     # Get document list
     docs = get_document_list(agent)
